@@ -51,13 +51,10 @@ export const PATCH: RequestHandler = async ({ request }) => {
 		const current = await getActiveSettings(db, env as Parameters<typeof getActiveSettings>[1]);
 		const merged: ModelSettings = { ...current, ...update };
 
-		await db.query('UPDATE type::record($id) MERGE $data', {
-			id: 'settings:main',
-			data: merged
-		});
+		await db.query('UPSERT settings:main MERGE $data', { data: merged });
 
 		const [rows] = q<[ModelSettings[]]>(
-			await db.query('SELECT * FROM type::record($id)', { id: 'settings:main' })
+			await db.query('SELECT * FROM settings:main')
 		);
 		return json(rows?.[0] ?? merged);
 	} catch (e) {

@@ -248,14 +248,18 @@
 		color: rgba(255, 255, 255, 0.2);
 	}
 	select {
-		background: rgba(255, 255, 255, 0.06);
+		background: #1a1a2e;
 		border: 1px solid rgba(255, 255, 255, 0.12);
 		border-radius: 8px;
-		color: rgba(255, 255, 255, 0.85);
+		color: #dde;
 		padding: 8px 10px;
 		font-size: 13px;
 		cursor: pointer;
 		outline: none;
+	}
+	select option, select optgroup {
+		background: #1a1a2e;
+		color: #dde;
 	}
 	select:focus { border-color: rgba(68, 136, 255, 0.5); }
 	select:disabled { opacity: 0.4; cursor: not-allowed; }

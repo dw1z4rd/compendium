@@ -170,6 +170,17 @@
 		importText = '';
 	}
 
+	// ─── Markdown file load ──────────────────────────────────────────────────
+
+	function onMdSelect(e: Event) {
+		const file = (e.target as HTMLInputElement).files?.[0];
+		if (!file) return;
+		const reader = new FileReader();
+		reader.onload = () => { importText = reader.result as string; };
+		reader.readAsText(file);
+		(e.target as HTMLInputElement).value = '';
+	}
+
 	// ─── Reprocess pending ───────────────────────────────────────────────────
 
 	async function reprocessPending() {
@@ -329,6 +340,10 @@
 
 		<!-- Import tab -->
 	{:else if activeTab === 'import'}
+		<label class="md-upload-label">
+			<input type="file" accept=".md,text/markdown" onchange={onMdSelect} />
+			Load .md file
+		</label>
 		<textarea
 			placeholder="Paste a conversation, article excerpt, or any text…"
 			bind:value={importText}
@@ -514,6 +529,21 @@
 	.image-actions .submit {
 		flex: 1;
 	}
+	.md-upload-label {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(255, 255, 255, 0.05);
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		border-radius: 7px;
+		color: rgba(255, 255, 255, 0.45);
+		padding: 5px 12px;
+		font-size: 12px;
+		cursor: pointer;
+		align-self: flex-start;
+	}
+	.md-upload-label:hover { color: rgba(255, 255, 255, 0.7); border-color: rgba(255,255,255,0.25); }
+	.md-upload-label input { display: none; }
 	.reprocess {
 		background: rgba(255, 180, 50, 0.12);
 		border: 1px solid rgba(255, 180, 50, 0.35);

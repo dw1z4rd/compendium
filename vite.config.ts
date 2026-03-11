@@ -5,7 +5,8 @@ export default defineConfig({
 	plugins: [sveltekit()],
 	ssr: {
 		// surrealdb uses Node-specific APIs; keep it server-side only
-		noExternal: ['surrealdb']
+		// @threlte packages use conditional exports that SSR bundler can't resolve externally
+		noExternal: ['surrealdb', '@threlte/core', '@threlte/extras']
 	},
 	build: {
 		chunkSizeWarningLimit: 800,

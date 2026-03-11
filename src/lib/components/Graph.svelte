@@ -43,8 +43,9 @@
 				vz: 0
 			}));
 
+			const nodeIds = new Set(newNodes.map((n) => n.id));
 			const newLinks: FLink[] = currentEdges
-				.filter((e) => e.status !== 'rejected')
+				.filter((e) => e.status !== 'rejected' && nodeIds.has(e.from_node) && nodeIds.has(e.to_node))
 				.map((e) => ({ source: e.from_node, target: e.to_node }));
 
 			simNodes = newNodes;

@@ -33,7 +33,7 @@ export async function getActiveSettings(
 
 	try {
 		const [rows] = q<[ModelSettings[]]>(
-			await db.query('SELECT * FROM type::record($id)', { id: 'settings:main' })
+			await db.query('SELECT * FROM settings:main')
 		);
 		const record = rows?.[0];
 		if (!record) return defaults;
