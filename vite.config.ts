@@ -6,5 +6,17 @@ export default defineConfig({
 	ssr: {
 		// surrealdb uses Node-specific APIs; keep it server-side only
 		noExternal: ['surrealdb']
+	},
+	build: {
+		chunkSizeWarningLimit: 800,
+		rollupOptions: {
+			output: {
+				manualChunks(id) {
+					if (id.includes('node_modules/three/')) return 'three';
+					if (id.includes('node_modules/@threlte/') || id.includes('node_modules/threlte')) return 'threlte';
+					if (id.includes('node_modules/d3') || id.includes('node_modules/three-mesh-bvh')) return 'd3-three-extras';
+				}
+			}
+		}
 	}
 });

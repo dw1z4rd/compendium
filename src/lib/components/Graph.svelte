@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { Canvas, T, useTask } from '@threlte/core';
+	import { Canvas, T } from '@threlte/core';
+	import { untrack } from 'svelte';
 	import { OrbitControls } from '@threlte/extras';
+	import SimulationTicker from './SimulationTicker.svelte';
 	import { forceSimulation, forceLink, forceManyBody, forceCenter } from 'd3-force-3d';
 	import type { SimNode, SimLink } from 'd3-force-3d';
 	import { nodes, edges, filteredNodeIds, selectedNodeId } from '$lib/graph-store';
@@ -22,48 +24,46 @@
 
 	// Rebuild simulation when graph data changes
 	$effect(() => {
+		// Read reactive sources — these are the only tracked dependencies
 		const currentNodes = $nodes;
 		const currentEdges = $edges;
 
-		// Preserve existing positions to avoid re-layout on data refresh
-		const posMap = new Map(simNodes.map((n) => [n.id, { x: n.x, y: n.y, z: n.z }]));
+		// All writes (and reads of $state written here) happen outside tracking
+		untrack(() => {
+			const posMap = new Map(simNodes.map((n) => [n.id, { x: n.x, y: n.y, z: n.z }]));
 
-		simNodes = currentNodes.map((n) => ({
-			id: n.id,
-			x: posMap.get(n.id)?.x ?? (Math.random() - 0.5) * 120,
-			y: posMap.get(n.id)?.y ?? (Math.random() - 0.5) * 120,
-			z: posMap.get(n.id)?.z ?? (Math.random() - 0.5) * 120,
-			vx: 0,
-			vy: 0,
-			vz: 0
-		}));
+			const newNodes: FNode[] = currentNodes.map((n) => ({
+				id: n.id,
+				x: posMap.get(n.id)?.x ?? (Math.random() - 0.5) * 120,
+				y: posMap.get(n.id)?.y ?? (Math.random() - 0.5) * 120,
+				z: posMap.get(n.id)?.z ?? (Math.random() - 0.5) * 120,
+				vx: 0,
+				vy: 0,
+				vz: 0
+			}));
 
-		simLinks = currentEdges
-			.filter((e) => e.status !== 'rejected')
-			.map((e) => ({ source: e.from_node, target: e.to_node }));
+			const newLinks: FLink[] = currentEdges
+				.filter((e) => e.status !== 'rejected')
+				.map((e) => ({ source: e.from_node, target: e.to_node }));
 
-		simulation?.stop();
+			simNodes = newNodes;
+			simLinks = newLinks;
 
-		simulation = forceSimulation<FNode>(simNodes)
-			.numDimensions(3)
-			.force(
-				'link',
-				forceLink<FNode, FLink>(simLinks)
-					.id((d) => d.id)
-					.distance(45)
-					.strength(0.4)
-			)
-			.force('charge', forceManyBody<FNode>().strength(-90).distanceMax(300))
-			.force('center', forceCenter<FNode>(0, 0, 0).strength(0.05))
-			.alphaDecay(0.015)
-			.stop();
-	});
-
-	// Tick the simulation inside Threlte's render loop
-	useTask(() => {
-		if (simulation && simulation.alpha() > simulation.alphaMin()) {
-			simulation.tick();
-		}
+			simulation?.stop();
+			simulation = forceSimulation<FNode>(newNodes)
+				.numDimensions(3)
+				.force(
+					'link',
+					forceLink<FNode, FLink>(newLinks)
+						.id((d) => d.id)
+						.distance(45)
+						.strength(0.4)
+				)
+				.force('charge', forceManyBody<FNode>().strength(-90).distanceMax(300))
+				.force('center', forceCenter<FNode>(0, 0, 0).strength(0.05))
+				.alphaDecay(0.015)
+				.stop();
+		});
 	});
 
 	// ─── Connection count ───────────────────────────────────────────────────────
@@ -102,6 +102,7 @@
 
 <div class="graph-container">
 	<Canvas>
+		<SimulationTicker getSimulation={() => simulation} />
 		<T.PerspectiveCamera makeDefault position={[0, 0, 280]} fov={55}>
 			<OrbitControls enableDamping dampingFactor={0.08} />
 		</T.PerspectiveCamera>
