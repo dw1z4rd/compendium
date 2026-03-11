@@ -1,31 +1,93 @@
 # LLM Model Settings Panel — Design Spec
-Date: 2026-03-11
+Date: 2026-03-11 (revised v3)
 
 ## Overview
 
-Add a global settings panel to Compendium that lets the user switch the active Ollama models (text, vision, embed) at any time without editing `.env`. The selected models persist in SurrealDB and are used by all processing routes.
+Add a global settings panel to Compendium that lets the user switch the active Ollama models (text, vision, embed) at any time without editing `.env`. The selected models persist in SurrealDB. A hardcoded `MODEL_CATALOG` defines all available cloud models (Ollama cloud + Gemini); locally pulled models are fetched dynamically from the local Ollama instance.
 
 ## Goals
 
 - Replace hard-coded `.env` model reads in processing routes with DB-backed config
-- Surface locally pulled Ollama models and cloud-hosted Ollama models in a single UI
+- Surface locally pulled Ollama models and a curated list of cloud models in the UI
 - Persist settings to SurrealDB so they survive page reloads and work across devices
 - Zero breaking changes — `.env` values remain the fallback when no DB setting exists
 
 ## Out of Scope
 
-- Switching cloud providers (Gemini/Anthropic) — unchanged
+- Switching cloud providers (Gemini/Anthropic) via the existing per-node cloud process flow — unchanged
 - Per-node model override — global only
 - Pulling new models from within the UI
-- The `transcribeAudio` whisper model (hardcoded `"whisper"` in `ollama.ts`) — left for a future spec
+- Cloud vision models — vision model selector shows local Ollama models only
+- Cloud embed models — embed model selector shows local Ollama models only
+- The `transcribeAudio` whisper model (hardcoded `"whisper"` in `ollama.ts`) — future spec
+
+---
+
+## New Environment Variables
+
+```
+OLLAMA_CLOUD_URL=https://ollama.com        # base URL for Ollama cloud models
+OLLAMA_CLOUD_API_KEY=                      # optional auth key for Ollama cloud
+```
+
+Add both to `.env.example`. `OLLAMA_CLOUD_URL` defaults to `https://ollama.com` if absent.
+
+---
+
+## Model Catalog (`src/lib/model-catalog.ts`)
+
+A plain `src/lib/` module with **no `$env` imports** — env values are injected by callers.
+
+```ts
+export interface ModelDef {
+  name: string;         // display label
+  color: string;        // hex color for UI badge
+  group: 'ollama-cloud' | 'gemini';
+}
+
+export interface CatalogEnv {
+  OLLAMA_CLOUD_URL: string;
+  OLLAMA_CLOUD_API_KEY?: string;
+  GEMINI_API_KEY: string;
+}
+
+// Returns the full model catalog as a plain data structure.
+// makeProvider is resolved by resolveTextProvider in settings.ts (server-side).
+export function buildCatalog(): Record<string, ModelDef> {
+  return {
+    "deepseek-v3.1:671b-cloud": { name: "DeepSeek V3.1",    color: "#4B8BF5", group: "ollama-cloud" },
+    "deepseek-v3.2-cloud":      { name: "DeepSeek V3.2",    color: "#3B7BFF", group: "ollama-cloud" },
+    "devstral-small-2:24b-cloud":{ name: "Devstral Small 2", color: "#FF7000", group: "ollama-cloud" },
+    "kimi-k2:1t-cloud":         { name: "Kimi K2 1T",       color: "#A78BFA", group: "ollama-cloud" },
+    "gemini-2.5-flash":         { name: "Gemini 2.5 Flash", color: "#1A73E8", group: "gemini"       },
+    "gemini-2.0-flash":         { name: "Gemini 2.0 Flash", color: "#4285F4", group: "gemini"       },
+  };
+}
+```
+
+`buildCatalog()` returns only metadata (name, color, group). Provider construction is done server-side in `settings.ts` using injected env values.
+
+---
+
+## `OllamaConfig` change (`src/lib/ollama.ts`)
+
+Add optional `apiKey` to the existing interface:
+
+```ts
+export interface OllamaConfig {
+  baseUrl: string;
+  model?: string;
+  apiKey?: string;      // NEW — for Ollama cloud auth
+}
+```
+
+When `apiKey` is set, include `Authorization: Bearer <apiKey>` in the `headers` of every `fetch` call inside `createOllamaProvider`, `describeImage`, `generateEmbedding`, and `transcribeAudio`.
 
 ---
 
 ## Data Layer
 
 ### SurrealDB: `settings:main`
-
-A single record in a new `settings` table:
 
 ```json
 {
@@ -35,41 +97,60 @@ A single record in a new `settings` table:
 }
 ```
 
+- `text_model`: any local model name or a catalog key (e.g. `"kimi-k2:1t-cloud"`)
+- `vision_model`: local Ollama model name only
+- `embed_model`: local Ollama model name only
 - Created on first `PATCH /api/settings` call
-- If absent, all reads fall back to `OLLAMA_TEXT_MODEL`, `OLLAMA_VISION_MODEL`, `OLLAMA_EMBED_MODEL` env vars, then hardcoded defaults (`llama3.2`, `llava`, `nomic-embed-text`)
-- **Partial MERGE semantics**: `PATCH` only overwrites fields that are present in the request body; absent fields retain their current DB value
+- Falls back to `OLLAMA_TEXT_MODEL` / `OLLAMA_VISION_MODEL` / `OLLAMA_EMBED_MODEL` env vars, then hardcoded defaults (`llama3.2`, `llava`, `nomic-embed-text`)
+- `PATCH` uses SurrealDB `MERGE` — only provided fields are updated. The endpoint always writes all three fields on the first write to avoid missing-field errors on `SCHEMAFULL` records.
 
 ### Schema addition (`schema.surql`)
 
 ```sql
 DEFINE TABLE settings SCHEMAFULL;
-DEFINE FIELD text_model   ON TABLE settings TYPE string;
-DEFINE FIELD vision_model ON TABLE settings TYPE string;
-DEFINE FIELD embed_model  ON TABLE settings TYPE string;
+DEFINE FIELD text_model   ON TABLE settings TYPE string DEFAULT 'llama3.2';
+DEFINE FIELD vision_model ON TABLE settings TYPE string DEFAULT 'llava';
+DEFINE FIELD embed_model  ON TABLE settings TYPE string DEFAULT 'nomic-embed-text';
 ```
 
-This must be applied to the SurrealDB instance before the feature is used.
+DEFAULTs ensure a `MERGE` with only one field creates a valid record.
 
 ---
 
-## Shared Helper: `src/lib/settings.ts`
+## Shared Helpers (`src/lib/settings.ts`)
+
+This file imports `$env/dynamic/private` (server-side only, imported by `+server.ts` files).
 
 ```ts
 import type { Surreal } from 'surrealdb';
+import type { LLMProvider } from '$lib/llm-agent';
+import { buildCatalog, type CatalogEnv } from '$lib/model-catalog';
 
-export async function getActiveSettings(db: Surreal): Promise<ModelSettings>
+export interface ModelSettings {
+  text_model: string;
+  vision_model: string;
+  embed_model: string;
+}
 ```
 
-Reads `settings:main`; falls back to env vars / hardcoded defaults per field. Used by all three processing routes to keep fallback logic in one place.
+> `ModelSettings` is also added to `src/lib/types.ts` and imported from there in `settings.ts`.
 
-> `ModelSettings` is defined in `src/lib/types.ts` (alongside other domain interfaces):
-> ```ts
-> export interface ModelSettings {
->   text_model: string;
->   vision_model: string;
->   embed_model: string;
-> }
-> ```
+### `getActiveSettings(db: Surreal): Promise<ModelSettings>`
+
+Queries `settings:main`. Wraps the DB read in try/catch — on any failure returns env var values / hardcoded defaults. Never throws.
+
+### `resolveTextProvider(modelKey: string, env: CatalogEnv): LLMProvider`
+
+Resolves a text model key to an `LLMProvider`:
+- If `modelKey` is a key in `buildCatalog()` with `group: 'ollama-cloud'` → `createOllamaProvider({ baseUrl: env.OLLAMA_CLOUD_URL, apiKey: env.OLLAMA_CLOUD_API_KEY, model: modelKey })`
+- If `modelKey` is a key in `buildCatalog()` with `group: 'gemini'` → `createGeminiProvider({ apiKey: env.GEMINI_API_KEY, model: modelKey })`
+- Otherwise → `createOllamaProvider({ baseUrl: env.OLLAMA_URL, model: modelKey })` (local)
+
+### `resolveEmbedConfig(embedKey: string, ollamaUrl: string): { baseUrl: string; embedModel: string }`
+
+Always returns a local Ollama embed config. Embed never uses cloud:
+- Returns `{ baseUrl: ollamaUrl, embedModel: embedKey }`
+- If `embedKey` is a catalog key (shouldn't happen via UI, but defensively handled) → returns `{ baseUrl: ollamaUrl, embedModel: DEFAULT_EMBED_MODEL }`
 
 ---
 
@@ -77,97 +158,48 @@ Reads `settings:main`; falls back to env vars / hardcoded defaults per field. Us
 
 ### `GET /api/settings`
 
-Returns the current active model config.
-
-**Response:**
-```json
-{
-  "text_model": "llama3.1:8b",
-  "vision_model": "llava",
-  "embed_model": "nomic-embed-text"
-}
-```
-
-Logic: call `getActiveSettings(db)` — always returns a valid object (env/default fallback on DB failure).
-
----
+Returns the current active model config. Calls `getActiveSettings(db)`. Always returns a valid object.
 
 ### `PATCH /api/settings`
 
-Upserts model preferences. Uses SurrealDB `MERGE` so only provided fields are updated.
-
-**Request body** (all fields optional, but any provided field must be a non-empty string):
-```json
-{
-  "text_model": "deepseek-v3:latest"
-}
-```
+Upserts model preferences.
 
 **Validation:**
-- Reject with 400 if any provided field is not a non-empty string
-- Reject unknown fields (ignore silently — no extra DB writes)
+- Any provided field must be a non-empty string
+- `vision_model` and `embed_model` must not be catalog keys (reject 400 if they are)
+- Unknown fields silently ignored
+- Returns 400 on invalid input, 500 on DB failure
 
-**Response:** updated full settings record (same shape as GET).
-
-**Error:** 500 on DB write failure.
-
----
+**First-write behavior:** if `settings:main` does not yet exist, the endpoint writes all three fields (merging request values with env/default fallbacks for any omitted fields) to ensure the `SCHEMAFULL` record is complete.
 
 ### `GET /api/ollama/models`
 
-Fetches and merges available models from two sources:
+Returns model lists for the settings UI:
 
-**1. Local** — `GET {OLLAMA_URL}/api/tags`
-
-Response shape (from Ollama docs):
-```json
-{ "models": [{ "name": "llama3.1:8b", ... }, ...] }
-```
-Extract `models[].name`.
-
-**2. Cloud** — `GET https://ollama.com/api/search?q=&limit=100&sort=featured`
-
-This is Ollama's public library search endpoint (used by their website). It is not a formally documented API and has no stability guarantee. The implementation must wrap it in a `try/catch` and return `cloud: []` on any failure. Expected response shape (best-effort):
-```json
-{ "models": [{ "name": "deepseek-v3", "tags": [...], ... }] }
-```
-Model names from this source may not include a tag (e.g. `"deepseek-v3"` rather than `"deepseek-v3:latest"`). The implementation should append `:latest` if no colon is present.
-
-**Response:**
 ```json
 {
   "local": ["llama3.1:8b", "nomic-embed-text"],
-  "cloud": ["deepseek-v3:latest", "kimi-k2-1t-cloud:latest"]
+  "cloud": [
+    { "key": "kimi-k2:1t-cloud", "name": "Kimi K2 1T", "color": "#A78BFA", "group": "ollama-cloud" },
+    { "key": "gemini-2.0-flash",  "name": "Gemini 2.0 Flash", "color": "#4285F4", "group": "gemini" }
+  ]
 }
 ```
 
-Graceful degradation:
-- If Ollama is unreachable → `local: []`
-- If Ollama library API is unreachable → `cloud: []`
-- Never throws — always returns the partial result
+- `local`: fetched from `GET {OLLAMA_URL}/api/tags` → `models[].name`. Returns `[]` if unreachable.
+- `cloud`: `Object.entries(buildCatalog()).map(([key, def]) => ({ key, ...def }))`. Always available (no network call).
 
----
+### Modified processing routes
 
-### Modified: `POST /api/nodes/[id]/process`
-
-Replace direct `env.*` model reads with `getActiveSettings(db)`:
+All three routes (`/process`, `/process-cloud`, `/propose-edges`) replace direct `env.*` model reads:
 
 ```ts
 const settings = await getActiveSettings(db);
-// use settings.text_model, settings.vision_model, settings.embed_model
+const env = { OLLAMA_URL, OLLAMA_CLOUD_URL, OLLAMA_CLOUD_API_KEY, GEMINI_API_KEY };
+const textProvider = resolveTextProvider(settings.text_model, env);
+const embedCfg = resolveEmbedConfig(settings.embed_model, OLLAMA_URL);
+// vision: describeImage(base64, { baseUrl: OLLAMA_URL, visionModel: settings.vision_model })
 ```
-
----
-
-### Modified: `POST /api/nodes/[id]/process-cloud`
-
-Use `getActiveSettings(db)` for the embed model (cloud routes still use Gemini/Anthropic for text/vision).
-
----
-
-### Modified: `POST /api/nodes/[id]/propose-edges`
-
-This route also reads `env.OLLAMA_TEXT_MODEL` directly. Replace with `getActiveSettings(db).text_model`.
 
 ---
 
@@ -175,35 +207,38 @@ This route also reads `env.OLLAMA_TEXT_MODEL` directly. Replace with `getActiveS
 
 ### Settings button
 
-A gear icon (⚙) added to the existing top bar in `+page.svelte`, to the right of the Ollama status indicator. Always visible.
+A gear icon (⚙) added to the top bar in `+page.svelte`, to the right of the Ollama status indicator.
 
-### Settings modal (`src/lib/components/SettingsPanel.svelte`)
+### `src/lib/components/SettingsPanel.svelte`
 
-A centered modal overlay. Opens when the gear icon is clicked.
+A centered modal overlay.
 
 **On open:**
-1. `GET /api/settings` — populate current selections
-2. `GET /api/ollama/models` — populate dropdown options
+1. `GET /api/settings` → populate current selections
+2. `GET /api/ollama/models` → populate dropdowns
 
-**Contents:**
+**Dropdown structure:**
 
-| Label | Dropdown options |
-|-------|-----------------|
-| Text Model | Local group + Cloud group |
-| Vision Model | Local group + Cloud group |
-| Embed Model | Local group + Cloud group |
+| Selector | Available options |
+|----------|-------------------|
+| Text Model | Local (from `/api/tags`) + Ollama Cloud + Gemini optgroups |
+| Vision Model | Local only (from `/api/tags`) |
+| Embed Model | Local only (from `/api/tags`) |
 
-Each `<select>` uses `<optgroup label="Local">` and `<optgroup label="Cloud">` to visually separate the two sources.
+Text Model shows `<optgroup label="Local">`, `<optgroup label="Ollama Cloud">`, `<optgroup label="Gemini">`.
+Vision and Embed show only `<optgroup label="Local">`.
+
+Cloud options show their display name from the catalog, not the raw key.
 
 **Actions:**
-- **Save** — `PATCH /api/settings` with all three current selections, then close modal
+- **Save** — `PATCH /api/settings` with all three values, then close
 - **Cancel / click outside** — close without saving
 
 **Loading & error states:**
-- Dropdowns show a disabled `"Loading…"` option while fetches are in-flight
-- If `GET /api/settings` fails, selections default to the hardcoded defaults and a non-blocking inline error message is shown
-- If `GET /api/ollama/models` fails entirely, both optgroups are empty but the dropdown still renders with a disabled `"Could not load models"` option
-- Save button is disabled while fetches are in-flight or while the PATCH is in-flight
+- Dropdowns show disabled `"Loading…"` while fetches are in-flight
+- If `GET /api/settings` fails: selections default to hardcoded defaults; inline error shown
+- If local Ollama is unreachable: Local optgroups are empty; cloud optgroup in Text Model still renders
+- Save button disabled while any fetch or the PATCH is in-flight
 
 ---
 
@@ -211,13 +246,16 @@ Each `<select>` uses `<optgroup label="Local">` and `<optgroup label="Cloud">` t
 
 | File | Change |
 |------|--------|
+| `.env.example` | Add `OLLAMA_CLOUD_URL`, `OLLAMA_CLOUD_API_KEY` |
 | `src/lib/types.ts` | Add `ModelSettings` interface |
-| `src/lib/settings.ts` | New — `getActiveSettings(db: Surreal)` helper |
+| `src/lib/ollama.ts` | Add `apiKey` to `OllamaConfig`; pass `Authorization` header when set |
+| `src/lib/model-catalog.ts` | New — `buildCatalog()`, `ModelDef`, `CatalogEnv` (no `$env` imports) |
+| `src/lib/settings.ts` | New — `getActiveSettings`, `resolveTextProvider`, `resolveEmbedConfig` |
 | `src/routes/api/settings/+server.ts` | New — GET + PATCH |
-| `src/routes/api/ollama/models/+server.ts` | New — GET (local + cloud merge) |
-| `src/routes/api/nodes/[id]/process/+server.ts` | Use `getActiveSettings()` |
-| `src/routes/api/nodes/[id]/process-cloud/+server.ts` | Use `getActiveSettings()` for embed model |
-| `src/routes/api/nodes/[id]/propose-edges/+server.ts` | Use `getActiveSettings()` for text model |
+| `src/routes/api/ollama/models/+server.ts` | New — local + cloud model list |
+| `src/routes/api/nodes/[id]/process/+server.ts` | Use settings helpers |
+| `src/routes/api/nodes/[id]/process-cloud/+server.ts` | Use `getActiveSettings` for embed |
+| `src/routes/api/nodes/[id]/propose-edges/+server.ts` | Use settings helpers |
 | `src/lib/components/SettingsPanel.svelte` | New — modal UI |
 | `src/routes/+page.svelte` | Add gear button + mount SettingsPanel |
-| `schema.surql` | Add `settings` table definition |
+| `schema.surql` | Add `settings` table definition with DEFAULT values |
