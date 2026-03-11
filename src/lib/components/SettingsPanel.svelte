@@ -84,7 +84,7 @@
 	<div class="modal" role="dialog" aria-modal="true" aria-label="Model settings">
 		<header>
 			<span>Model Settings</span>
-			<button class="close-btn" onclick={close}>✕</button>
+			<button class="close-btn" onclick={close} aria-label="Close model settings">✕</button>
 		</header>
 
 		{#if loadError}
