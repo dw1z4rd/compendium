@@ -7,8 +7,9 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getDB, serialize, serializeAll } from '$lib/db';
 import { env } from '$env/dynamic/private';
-import { createOllamaProvider, proposeEdges } from '$lib/ollama';
+import { proposeEdges } from '$lib/ollama';
 import { withRetry } from '$lib/llm-agent';
+import { getActiveSettings, resolveTextProvider } from '$lib/settings';
 import type { CompendiumNode } from '$lib/types';
 
 const q = <T>(v: unknown): T => v as unknown as T;
@@ -16,7 +17,16 @@ const q = <T>(v: unknown): T => v as unknown as T;
 export const POST: RequestHandler = async ({ params }) => {
 	const db = await getDB();
 	const baseUrl = env.OLLAMA_URL ?? 'http://localhost:11434';
-	const textModel = env.OLLAMA_TEXT_MODEL ?? undefined;
+	const settings = await getActiveSettings(db, env as Parameters<typeof getActiveSettings>[1]);
+	const provider = withRetry(
+		resolveTextProvider(settings.text_model, {
+			OLLAMA_URL: baseUrl,
+			OLLAMA_CLOUD_URL: env.OLLAMA_CLOUD_URL ?? 'https://ollama.com',
+			OLLAMA_CLOUD_API_KEY: env.OLLAMA_CLOUD_API_KEY,
+			GEMINI_API_KEY: env.GEMINI_API_KEY ?? ''
+		}),
+		{ maxRetries: 2 }
+	);
 
 	const [nodeRows] = q<[CompendiumNode[]]>(await db.query('SELECT * FROM type::record($id)', { id: `node:${params.id}` }));
 	const node = serialize<CompendiumNode>(nodeRows?.[0] as CompendiumNode);
@@ -28,8 +38,6 @@ export const POST: RequestHandler = async ({ params }) => {
 		})
 	);
 	const existingNodes = serializeAll<CompendiumNode>((existingRows ?? []) as CompendiumNode[]);
-
-	const provider = withRetry(createOllamaProvider({ baseUrl, model: textModel }), { maxRetries: 2 });
 
 	const proposals = await proposeEdges(
 		{ id: node.id, type: node.type, content: node.content, components: node.components, embedding: node.embedding },
