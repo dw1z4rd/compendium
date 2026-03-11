@@ -105,3 +105,9 @@ export interface ProcessResult {
 	node: CompendiumNode;
 	edgesProposed: number;
 }
+
+export interface ModelSettings {
+	text_model: string;
+	vision_model: string;
+	embed_model: string;
+}
