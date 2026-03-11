@@ -9,8 +9,8 @@ const q = <T>(v: unknown): T => v as unknown as T;
 export const GET: RequestHandler = async ({ params }) => {
 	try {
 		const db = await getDB();
-		const rows = q<CompendiumNode[]>(await db.select(`node:${params.id}`));
-		const node = Array.isArray(rows) ? rows[0] : rows;
+		const [rows] = q<[CompendiumNode[]]>(await db.query('SELECT * FROM type::record($id)', { id: `node:${params.id}` }));
+		const node = rows?.[0];
 		if (!node) throw error(404, 'Node not found');
 		return json(serialize<CompendiumNode>(node));
 	} catch (e: unknown) {
@@ -29,9 +29,9 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	}
 	try {
 		const db = await getDB();
-		await db.merge(`node:${params.id}`, body);
-		const rows = q<CompendiumNode[]>(await db.select(`node:${params.id}`));
-		const updated = Array.isArray(rows) ? rows[0] : rows;
+		await db.query('UPDATE type::record($id) MERGE $data', { id: `node:${params.id}`, data: body });
+		const [rows] = q<[CompendiumNode[]]>(await db.query('SELECT * FROM type::record($id)', { id: `node:${params.id}` }));
+		const updated = rows?.[0];
 		return json(serialize<CompendiumNode>(updated));
 	} catch (e) {
 		console.error('[PATCH /api/nodes/:id]', e);
@@ -42,7 +42,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 export const DELETE: RequestHandler = async ({ params }) => {
 	try {
 		const db = await getDB();
-		await db.delete(`node:${params.id}`);
+		await db.query('DELETE type::record($id)', { id: `node:${params.id}` });
 		return new Response(null, { status: 204 });
 	} catch (e) {
 		console.error('[DELETE /api/nodes/:id]', e);

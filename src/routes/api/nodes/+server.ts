@@ -33,19 +33,21 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	try {
 		const db = await getDB();
-		const created = q<CompendiumNode[]>(
-			await db.create('node', {
-				type,
-				content,
-				source,
-				components: [],
-				embedding: [],
-				status: 'pending',
-				created_at: new Date().toISOString(),
-				...(raw_media ? { raw_media } : {})
+		const [created] = q<[CompendiumNode[]]>(
+			await db.query('CREATE node CONTENT $data', {
+				data: {
+					type,
+					content,
+					source,
+					components: [],
+					embedding: [],
+					status: 'pending',
+					created_at: new Date(),
+					...(raw_media ? { raw_media } : {})
+				}
 			})
 		);
-		const node = Array.isArray(created) ? created[0] : created;
+		const node = created[0];
 		return json(serialize<CompendiumNode>(node), { status: 201 });
 	} catch (e) {
 		console.error('[POST /api/nodes]', e);

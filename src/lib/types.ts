@@ -95,6 +95,8 @@ export interface ProposedEdge {
 	to_node_id: string;
 	relation: RelationType;
 	reasoning: string;
+	_flipped?: boolean;
+	_originalTarget?: string;
 }
 
 // ─── API response shapes ──────────────────────────────────────────────────────

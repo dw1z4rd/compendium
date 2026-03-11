@@ -1,4 +1,4 @@
-import Surreal from 'surrealdb';
+import { Surreal } from 'surrealdb';
 import { env } from '$env/dynamic/private';
 
 // ─── Singleton connection ─────────────────────────────────────────────────────

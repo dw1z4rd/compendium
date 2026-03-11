@@ -25,9 +25,9 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		if (body.status) update.status = body.status;
 		if (body.annotation !== undefined) update.annotation = body.annotation;
 
-		await db.merge(`edge:${params.id}`, update);
-		const rows = q<CompendiumEdge[]>(await db.select(`edge:${params.id}`));
-		const updated = Array.isArray(rows) ? rows[0] : rows;
+		await db.query('UPDATE type::record($id) MERGE $data', { id: `edge:${params.id}`, data: update });
+		const [rows] = q<[CompendiumEdge[]]>(await db.query('SELECT * FROM type::record($id)', { id: `edge:${params.id}` }));
+		const updated = rows?.[0];
 		return json(serialize<CompendiumEdge>(updated as CompendiumEdge));
 	} catch (e) {
 		console.error('[PATCH /api/edges/:id]', e);

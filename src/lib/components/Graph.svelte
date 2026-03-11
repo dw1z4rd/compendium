@@ -3,6 +3,7 @@
 	import { untrack } from 'svelte';
 	import { OrbitControls } from '@threlte/extras';
 	import SimulationTicker from './SimulationTicker.svelte';
+	import ClickHandler from './ClickHandler.svelte';
 	import { forceSimulation, forceLink, forceManyBody, forceCenter } from 'd3-force-3d';
 	import type { SimNode, SimLink } from 'd3-force-3d';
 	import { nodes, edges, filteredNodeIds, selectedNodeId } from '$lib/graph-store';
@@ -103,6 +104,7 @@
 <div class="graph-container">
 	<Canvas>
 		<SimulationTicker getSimulation={() => simulation} />
+		<ClickHandler {simNodes} onNodeClick={(id) => selectedNodeId.set(id)} />
 		<T.PerspectiveCamera makeDefault position={[0, 0, 280]} fov={55}>
 			<OrbitControls enableDamping dampingFactor={0.08} />
 		</T.PerspectiveCamera>
@@ -128,7 +130,6 @@
 				<GraphNodeComponent
 					node={graphNode}
 					dimmed={$filteredNodeIds !== null && !$filteredNodeIds.has(base.id)}
-					onclick={(n) => selectedNodeId.set(n.id)}
 				/>
 			{/if}
 		{/each}

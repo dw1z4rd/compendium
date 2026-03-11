@@ -4,6 +4,7 @@
 	import SearchBar from '$lib/components/SearchBar.svelte';
 	import InputPanel from '$lib/components/InputPanel.svelte';
 	import EdgeReviewPanel from '$lib/components/EdgeReviewPanel.svelte';
+	import NodeDetailPanel from '$lib/components/NodeDetailPanel.svelte';
 	import {
 		nodes,
 		edges,
@@ -94,6 +95,7 @@
 	<div class="bottom-bar">
 		<InputPanel />
 		<div class="review-wrapper">
+			<NodeDetailPanel />
 			<EdgeReviewPanel />
 		</div>
 	</div>

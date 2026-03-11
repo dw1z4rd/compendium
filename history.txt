@@ -1,6 +1,19 @@
+#V2
+-- Compendium SurrealDB Schema
+-- Apply with: surreal import --conn <url> --user <user> --pass <pass> --ns compendium --db compendium schema.surql
+-- ─── Node table ──────────────────────────────────────────────────────────────
+DEFINE TABLE node SCHEMAFULL;
+DEFINE FIELD type       ON TABLE node TYPE string
+-- Compendium SurrealDB Schema
+-- Apply with: surreal import --conn <url> --user <user> --pass <pass> --ns compendium --db compendium schema.surql
+-- ─── Node table ──────────────────────────────────────────────────────────────
+DEFINE TABLE node SCHEMAFULL;
+DEFINE FIELD type       ON TABLE node TYPE string
+REMOVE TABLE node; REMOVE TABLE edge;
+REMOVE TABLE node;
+REMOVE TABLE edge;
 -- Compendium SurrealDB Schema
 -- Apply with: Get-Content schema.surql | surreal sql -e <url> --user <user> --pass <pass> --ns compendium --db compendium
-
 DEFINE TABLE node SCHEMAFULL;
 DEFINE FIELD type       ON TABLE node TYPE string;
 DEFINE FIELD content    ON TABLE node TYPE string;
@@ -13,7 +26,6 @@ DEFINE FIELD raw_media  ON TABLE node TYPE option<string>;
 DEFINE INDEX idx_node_status  ON TABLE node COLUMNS status;
 DEFINE INDEX idx_node_type    ON TABLE node COLUMNS type;
 DEFINE INDEX idx_node_created ON TABLE node COLUMNS created_at;
-
 DEFINE TABLE edge SCHEMAFULL;
 DEFINE FIELD from_node  ON TABLE edge TYPE record<node>;
 DEFINE FIELD to_node    ON TABLE edge TYPE record<node>;
@@ -26,3 +38,6 @@ DEFINE INDEX idx_edge_from     ON TABLE edge COLUMNS from_node;
 DEFINE INDEX idx_edge_to       ON TABLE edge COLUMNS to_node;
 DEFINE INDEX idx_edge_relation ON TABLE edge COLUMNS relation;
 DEFINE INDEX idx_edge_status   ON TABLE edge COLUMNS status;
+UPDATE node SET status = 'pending', components = [], embedding = [];
+DELETE edge;
+DELETE node;

@@ -197,12 +197,18 @@ function cosineSimilarity(a: number[], b: number[]): number {
 	return dot / (Math.sqrt(normA) * Math.sqrt(normB) || 1);
 }
 
-const EDGE_PROPOSAL_SYSTEM = `You are an expert at identifying conceptual relationships between ideas.
-Given a new node and a set of existing nodes, identify meaningful relationships using the provided taxonomy.
-Return ONLY a valid JSON array of edge proposals. No explanation.`;
+const EDGE_PROPOSAL_SYSTEM = `You are a knowledge graph editor connecting personal memories, beliefs, and thoughts.
+Rules:
+- Propose an edge only when the relationship is clearly evident from the specific content of both nodes.
+- Memories and beliefs often connect causally: a traumatic memory may be the origin of a belief about oneself or others.
+- The reasoning MUST cite specific content from BOTH nodes — not tone, domain, or inferred themes.
+- Do NOT connect nodes based on mood, tone, or vague thematic similarity.
+- Do NOT infer unstated connections. If the link isn't explicit in the text, do not propose it.
+- Return [] when no direct relationship is evident. This is the correct and expected response most of the time.
+- Return ONLY a valid JSON array. No explanation outside the array.`;
 
 export async function proposeEdges(
-	newNode: Pick<CompendiumNode, 'id' | 'content' | 'components' | 'embedding'>,
+	newNode: Pick<CompendiumNode, 'id' | 'type' | 'content' | 'components' | 'embedding'>,
 	existingNodes: CompendiumNode[],
 	provider: LLMProvider,
 	maxComparisons = 20
@@ -226,11 +232,13 @@ export async function proposeEdges(
 	const summary = candidates
 		.map(
 			(n, i) =>
-				`${i + 1}. ID: ${n.id}\n   Type: ${n.type}\n   Content: ${n.content.slice(0, 200)}\n   Components: ${n.components.join(', ')}`
+				`${i + 1}. ID: ${n.id}\n   Type: ${n.type}\n   Content: ${n.content.slice(0, 300)}\n   Components: ${n.components.join(', ')}`
 		)
 		.join('\n\n');
 
+
 	const prompt = `New node:
+Type: ${newNode.type}
 Content: ${newNode.content}
 Components: ${newNode.components.join(', ')}
 
@@ -239,13 +247,19 @@ ${summary}
 
 Relationship taxonomy: ${ALL_RELATION_TYPES.join(', ')}
 
-For each meaningful relationship, return an object:
-{"to_node_id": "<exact id from above>", "relation": "<taxonomy term>", "reasoning": "<brief explanation>"}
+The edge direction is: NEW NODE --[relation]--> EXISTING NODE.
+Choose the relation so this direction makes sense. If the existing node is the origin/cause and the new node is the effect, use "responds_to" or "contradicts" etc. rather than "origin_of".
+Only use "origin_of" if the NEW NODE is literally the source/cause of the EXISTING NODE.
 
-Return a JSON array. Only include strong, meaningful connections. Return [] if none.`;
+For each relationship, return an object:
+{"to_node_id": "<exact id from above>", "relation": "<taxonomy term>", "reasoning": "<one sentence, must cite specific content from both nodes>"}
 
+Be conservative. Most nodes will have no relationship. Return [] if no direct relationship is evident.`;
+
+	console.log('[proposeEdges] candidates:', candidates.length);
 	const p = withSystemPrompt(withRetry(provider, { maxRetries: 2 }), EDGE_PROPOSAL_SYSTEM);
 	const result = await p.generateText(prompt, { maxTokens: 1200, temperature: 0.3 });
+	console.log('[proposeEdges] LLM result:', result?.slice(0, 500));
 	if (!result) return [];
 
 	try {
@@ -253,13 +267,35 @@ Return a JSON array. Only include strong, meaningful connections. Return [] if n
 		if (!match) return [];
 		const parsed = JSON.parse(match[0]);
 		if (!Array.isArray(parsed)) return [];
-		return parsed.filter(
-			(e): e is ProposedEdge =>
+
+		const candidateMap = new Map(candidates.map((n) => [n.id, n]));
+
+		const causalRelations = ['origin_of', 'causes', 'enables', 'evokes'];
+		const causalSources = ['memory', 'conversation'];
+		const causalTargets = ['belief', 'thought'];
+
+		return parsed
+			.filter((e): e is ProposedEdge =>
 				typeof e.to_node_id === 'string' &&
 				typeof e.relation === 'string' &&
 				typeof e.reasoning === 'string' &&
 				(ALL_RELATION_TYPES as string[]).includes(e.relation)
-		);
+			)
+			.map((e): ProposedEdge => {
+				const targetNode = candidateMap.get(e.to_node_id);
+				if (!targetNode) return e;
+
+				const isCausal = causalRelations.includes(e.relation);
+				const newIsCausalSource = causalSources.includes(newNode.type);
+				const targetIsCausalSource = causalSources.includes(targetNode.type);
+
+				// Flip if causal direction is wrong: e.g. belief origin_of memory → memory origin_of belief
+				if (isCausal && !newIsCausalSource && targetIsCausalSource) {
+					return { ...e, _flipped: true, _originalTarget: e.to_node_id } as ProposedEdge;
+				}
+
+				return e;
+			});
 	} catch {
 		return [];
 	}

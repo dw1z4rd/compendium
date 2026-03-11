@@ -170,6 +170,71 @@
 		importText = '';
 	}
 
+	// ─── Reprocess pending ───────────────────────────────────────────────────
+
+	async function reprocessPending() {
+		const pending = $nodes.filter((n) => n.status === 'pending');
+		if (!pending.length) { statusMsg = 'No pending nodes'; return; }
+		await processNodes(pending);
+	}
+
+	async function reanalyseAll() {
+		if (!$nodes.length) { statusMsg = 'No nodes'; return; }
+		isSubmitting = true;
+
+		// Reset all nodes and edges
+		await fetch('/api/nodes/reset-all', { method: 'POST' });
+
+		// Pass 1: build embeddings + components for all nodes (no edge proposals yet)
+		const targets = $nodes;
+		for (let i = 0; i < targets.length; i++) {
+			const n = targets[i];
+			const shortId = n.id.includes(':') ? n.id.split(':')[1] : n.id;
+			statusMsg = `Pass 1: processing ${i + 1}/${targets.length}…`;
+			const res = await fetch(`/api/nodes/${shortId}/process`, { method: 'POST' });
+			if (res.ok) {
+				const { node: updated } = await res.json();
+				upsertNode(toGraphNode(updated));
+			}
+		}
+
+		// Pass 2: propose edges for all nodes now that everyone has embeddings
+		for (let i = 0; i < targets.length; i++) {
+			const n = targets[i];
+			const shortId = n.id.includes(':') ? n.id.split(':')[1] : n.id;
+			statusMsg = `Pass 2: edges ${i + 1}/${targets.length}…`;
+			const res = await fetch(`/api/nodes/${shortId}/propose-edges`, { method: 'POST' });
+			if (res.ok) {
+				const edgeRes = await fetch('/api/edges');
+				if (edgeRes.ok) { const allEdges: CompendiumEdge[] = await edgeRes.json(); allEdges.forEach(upsertEdge); }
+			}
+		}
+
+		statusMsg = 'Done — re-analysis complete';
+		isSubmitting = false;
+		setTimeout(() => (statusMsg = ''), 5000);
+	}
+
+	async function processNodes(targets: typeof $nodes) {
+		isSubmitting = true;
+		let processed = 0;
+		for (const n of targets) {
+			const shortId = n.id.includes(':') ? n.id.split(':')[1] : n.id;
+			statusMsg = `Processing ${processed + 1}/${targets.length}…`;
+			const res = await fetch(`/api/nodes/${shortId}/process`, { method: 'POST' });
+			if (res.ok) {
+				const { node: updated } = await res.json();
+				upsertNode(toGraphNode(updated));
+				processed++;
+				const edgeRes = await fetch('/api/edges');
+				if (edgeRes.ok) { const allEdges: CompendiumEdge[] = await edgeRes.json(); allEdges.forEach(upsertEdge); }
+			}
+		}
+		statusMsg = `Done — ${processed}/${targets.length} nodes processed`;
+		isSubmitting = false;
+		setTimeout(() => (statusMsg = ''), 5000);
+	}
+
 	// ─── Utils ────────────────────────────────────────────────────────────────
 
 	function blobToBase64(blob: Blob): Promise<string> {
@@ -280,6 +345,17 @@
 
 	{#if statusMsg}
 		<p class="status">{statusMsg}</p>
+	{/if}
+
+	{#if $ollamaAvailable && $nodes.some((n) => n.status === 'pending')}
+		<button class="reprocess" disabled={isSubmitting} onclick={reprocessPending}>
+			Process {$nodes.filter((n) => n.status === 'pending').length} pending
+		</button>
+	{/if}
+	{#if $ollamaAvailable && $nodes.length}
+		<button class="reanalyse" disabled={isSubmitting} onclick={reanalyseAll}>
+			Re-analyse all {$nodes.length} nodes
+		</button>
 	{/if}
 </div>
 
@@ -437,6 +513,32 @@
 	}
 	.image-actions .submit {
 		flex: 1;
+	}
+	.reprocess {
+		background: rgba(255, 180, 50, 0.12);
+		border: 1px solid rgba(255, 180, 50, 0.35);
+		border-radius: 8px;
+		color: rgba(255, 180, 50, 0.9);
+		padding: 6px;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.reprocess:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+	.reanalyse {
+		background: rgba(180, 100, 255, 0.12);
+		border: 1px solid rgba(180, 100, 255, 0.35);
+		border-radius: 8px;
+		color: rgba(180, 100, 255, 0.9);
+		padding: 6px;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.reanalyse:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
 	}
 	.status {
 		font-size: 12px;

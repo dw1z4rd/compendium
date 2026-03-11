@@ -15,7 +15,7 @@
     "@threlte/core": "^8.0.0",
     "@threlte/extras": "^9.0.0",
     "d3-force-3d": "^3.0.0",
-    "surrealdb": "^1.0.0",
+    "surrealdb": "^2.0.2",
     "svelte": "^5.0.0",
     "three": "^0.169.0"
   },
