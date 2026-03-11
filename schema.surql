@@ -26,3 +26,8 @@ DEFINE INDEX idx_edge_from     ON TABLE edge COLUMNS from_node;
 DEFINE INDEX idx_edge_to       ON TABLE edge COLUMNS to_node;
 DEFINE INDEX idx_edge_relation ON TABLE edge COLUMNS relation;
 DEFINE INDEX idx_edge_status   ON TABLE edge COLUMNS status;
+
+DEFINE TABLE settings SCHEMAFULL;
+DEFINE FIELD text_model   ON TABLE settings TYPE string DEFAULT 'llama3.2';
+DEFINE FIELD vision_model ON TABLE settings TYPE string DEFAULT 'llava';
+DEFINE FIELD embed_model  ON TABLE settings TYPE string DEFAULT 'nomic-embed-text';

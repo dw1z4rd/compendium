@@ -8,13 +8,13 @@ import type { RequestHandler } from './$types';
 import { getDB, serialize, serializeAll } from '$lib/db';
 import { env } from '$env/dynamic/private';
 import {
-	createOllamaProvider,
 	describeImage,
 	generateEmbedding,
 	extractComponents,
 	proposeEdges
 } from '$lib/ollama';
 import { withRetry } from '$lib/llm-agent';
+import { getActiveSettings, resolveTextProvider, resolveEmbedConfig } from '$lib/settings';
 import type { CompendiumNode, ProcessResult } from '$lib/types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -23,24 +23,28 @@ const q = <T>(v: unknown): T => v as unknown as T;
 export const POST: RequestHandler = async ({ params }) => {
 	const db = await getDB();
 	const baseUrl = env.OLLAMA_URL ?? 'http://localhost:11434';
-	const textModel = env.OLLAMA_TEXT_MODEL ?? undefined;
-	const visionModel = env.OLLAMA_VISION_MODEL ?? undefined;
-	const embedModel = env.OLLAMA_EMBED_MODEL ?? undefined;
+	const settings = await getActiveSettings(db, env as Parameters<typeof getActiveSettings>[1]);
+	const provider = withRetry(
+		resolveTextProvider(settings.text_model, {
+			OLLAMA_URL: baseUrl,
+			OLLAMA_CLOUD_URL: env.OLLAMA_CLOUD_URL ?? 'https://ollama.com',
+			OLLAMA_CLOUD_API_KEY: env.OLLAMA_CLOUD_API_KEY,
+			GEMINI_API_KEY: env.GEMINI_API_KEY ?? ''
+		}),
+		{ maxRetries: 2 }
+	);
+	const embedCfg = resolveEmbedConfig(settings.embed_model, baseUrl);
 
 	const [nodeRows] = q<[CompendiumNode[]]>(await db.query('SELECT * FROM type::record($id)', { id: `node:${params.id}` }));
 	const node = serialize<CompendiumNode>(nodeRows?.[0] as CompendiumNode);
 	if (!node?.id) throw error(404, 'Node not found');
-
-	const provider = withRetry(createOllamaProvider({ baseUrl, model: textModel }), {
-		maxRetries: 2
-	});
 
 	let content = node.content;
 	let components: string[] = node.components ?? [];
 
 	if (node.type === 'image' && node.raw_media) {
 		const base64 = (node.raw_media as string).replace(/^data:[^;]+;base64,/, '');
-		const result = await describeImage(base64, { baseUrl, visionModel });
+		const result = await describeImage(base64, { baseUrl, visionModel: settings.vision_model });
 		if (result) {
 			content = result.description;
 			components = result.components;
@@ -50,7 +54,7 @@ export const POST: RequestHandler = async ({ params }) => {
 	}
 
 	const embedding =
-		(await generateEmbedding(content, { baseUrl, embedModel })) ?? node.embedding ?? [];
+		(await generateEmbedding(content, embedCfg)) ?? node.embedding ?? [];
 
 	const [existingRows] = q<[CompendiumNode[]]>(
 		await db.query("SELECT * FROM node WHERE status = 'processed' AND id != $id", {

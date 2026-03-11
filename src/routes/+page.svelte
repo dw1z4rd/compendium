@@ -5,6 +5,7 @@
 	import InputPanel from '$lib/components/InputPanel.svelte';
 	import EdgeReviewPanel from '$lib/components/EdgeReviewPanel.svelte';
 	import NodeDetailPanel from '$lib/components/NodeDetailPanel.svelte';
+	import SettingsPanel from '$lib/components/SettingsPanel.svelte';
 	import {
 		nodes,
 		edges,
@@ -89,6 +90,7 @@
 			></span>
 			<span class="count-label">{$nodes.length} nodes · {$edges.length} edges</span>
 		</div>
+		<SettingsPanel />
 	</div>
 
 	<!-- Bottom: input panel (left) + edge review (right) -->

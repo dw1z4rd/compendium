@@ -10,6 +10,7 @@ import { getDB, serialize, serializeAll } from '$lib/db';
 import { env } from '$env/dynamic/private';
 import { createCloudProvider, describeImageCloud } from '$lib/llm.js';
 import { generateEmbedding, extractComponents, proposeEdges } from '$lib/ollama';
+import { getActiveSettings, resolveEmbedConfig } from '$lib/settings';
 import type { CompendiumNode, ProcessResult } from '$lib/types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -32,7 +33,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 	const db = await getDB();
 	const ollamaUrl = env.OLLAMA_URL ?? 'http://localhost:11434';
-	const embedModel = env.OLLAMA_EMBED_MODEL ?? undefined;
+	const settings = await getActiveSettings(db, env as Parameters<typeof getActiveSettings>[1]);
+	const embedCfg = resolveEmbedConfig(settings.embed_model, ollamaUrl);
 
 	const [nodeRows] = q<[CompendiumNode[]]>(await db.query('SELECT * FROM type::record($id)', { id: `node:${params.id}` }));
 	const node = serialize<CompendiumNode>(nodeRows?.[0] as CompendiumNode);
@@ -57,7 +59,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	}
 
 	const embedding =
-		(await generateEmbedding(content, { baseUrl: ollamaUrl, embedModel })) ??
+		(await generateEmbedding(content, embedCfg)) ??
 		node.embedding ??
 		[];
 
