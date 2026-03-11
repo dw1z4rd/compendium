@@ -39,6 +39,9 @@
 			}
 		} catch {
 			loadError = 'Failed to load settings.';
+			textModel = 'llama3.2';
+			visionModel = 'llava';
+			embedModel = 'nomic-embed-text';
 		} finally {
 			loading = false;
 		}
