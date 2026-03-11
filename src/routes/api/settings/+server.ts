@@ -39,7 +39,7 @@ export const PATCH: RequestHandler = async ({ request }) => {
 
 	const update: Partial<ModelSettings> = {};
 	for (const key of allowed) {
-		if (body[key] !== undefined) update[key] = body[key] as string;
+		if (body[key] !== undefined) update[key] = (body[key] as string).trim();
 	}
 	if (Object.keys(update).length === 0) {
 		throw error(400, 'No valid fields to update');

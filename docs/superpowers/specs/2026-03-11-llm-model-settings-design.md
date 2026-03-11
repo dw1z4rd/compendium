@@ -46,6 +46,7 @@ export interface ModelDef {
 }
 
 export interface CatalogEnv {
+  OLLAMA_URL: string;
   OLLAMA_CLOUD_URL: string;
   OLLAMA_CLOUD_API_KEY?: string;
   GEMINI_API_KEY: string;
