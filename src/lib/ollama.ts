@@ -35,6 +35,11 @@ export async function isOllamaAvailable(baseUrl: string): Promise<boolean> {
 export interface OllamaConfig {
 	baseUrl: string;
 	model?: string;
+	apiKey?: string;
+}
+
+function authHeaders(config: { apiKey?: string }): Record<string, string> {
+	return config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {};
 }
 
 /**
@@ -56,7 +61,7 @@ export function createOllamaProvider(config: OllamaConfig): LLMProvider {
 				}
 				const res = await fetch(`${config.baseUrl}/api/generate`, {
 					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
+					headers: { 'Content-Type': 'application/json', ...authHeaders(config) },
 					body: JSON.stringify(body)
 				});
 				if (!res.ok) return null;
@@ -86,7 +91,7 @@ export async function describeImage(
 	try {
 		const res = await fetch(`${config.baseUrl}/api/generate`, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			headers: { 'Content-Type': 'application/json', ...authHeaders(config) },
 			body: JSON.stringify({ model, prompt, images: [base64Image], stream: false })
 		});
 		if (!res.ok) return null;
@@ -117,7 +122,7 @@ export async function generateEmbedding(
 	try {
 		const res = await fetch(`${config.baseUrl}/api/embeddings`, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			headers: { 'Content-Type': 'application/json', ...authHeaders(config) },
 			body: JSON.stringify({ model, prompt: text })
 		});
 		if (!res.ok) return null;
@@ -142,7 +147,7 @@ export async function transcribeAudio(
 	try {
 		const res = await fetch(`${config.baseUrl}/api/generate`, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			headers: { 'Content-Type': 'application/json', ...authHeaders(config) },
 			body: JSON.stringify({
 				model: 'whisper',
 				prompt: '',
