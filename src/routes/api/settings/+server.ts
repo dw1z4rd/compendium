@@ -8,10 +8,19 @@ import { buildCatalog } from '$lib/model-catalog';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const q = <T>(v: unknown): T => v as unknown as T;
 
+function deriveCloudConfigured(textModel: string): boolean {
+	const catalog = buildCatalog();
+	const def = catalog[textModel];
+	if (!def) return false;
+	if (def.group === 'gemini') return !!env.GEMINI_API_KEY;
+	if (def.group === 'ollama-cloud') return true; // /process falls back to 'https://ollama.com' when OLLAMA_CLOUD_URL unset
+	return false;
+}
+
 export const GET: RequestHandler = async () => {
 	const db = await getDB();
 	const settings = await getActiveSettings(db, env as Parameters<typeof getActiveSettings>[1]);
-	return json(settings);
+	return json({ ...settings, cloud_configured: deriveCloudConfigured(settings.text_model) });
 };
 
 export const PATCH: RequestHandler = async ({ request }) => {
@@ -56,7 +65,8 @@ export const PATCH: RequestHandler = async ({ request }) => {
 		const [rows] = q<[ModelSettings[]]>(
 			await db.query('SELECT * FROM settings:main')
 		);
-		return json(rows?.[0] ?? merged);
+		const saved = rows?.[0] ?? merged;
+		return json({ ...saved, cloud_configured: deriveCloudConfigured(saved.text_model) });
 	} catch (e) {
 		console.error('[PATCH /api/settings]', e);
 		throw error(500, 'Failed to save settings');
