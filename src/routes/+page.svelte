@@ -11,6 +11,7 @@
 		edges,
 		isLoading,
 		ollamaAvailable,
+		cloudConfigured,
 		upsertNode,
 		upsertEdge
 	} from '$lib/graph-store';
@@ -27,10 +28,11 @@
 		(async () => {
 		try {
 			// Load data and check Ollama in parallel
-			const [nodesRes, edgesRes, ollamaRes] = await Promise.all([
+			const [nodesRes, edgesRes, ollamaRes, settingsRes] = await Promise.all([
 				fetch('/api/nodes'),
 				fetch('/api/edges'),
-				fetch('/api/ollama/status')
+				fetch('/api/ollama/status'),
+				fetch('/api/settings')
 			]);
 
 			if (nodesRes.ok) {
@@ -44,6 +46,10 @@
 			if (ollamaRes.ok) {
 				const { available } = await ollamaRes.json();
 				ollamaAvailable.set(available);
+			}
+			if (settingsRes.ok) {
+				const s = await settingsRes.json();
+				cloudConfigured.set(s.cloud_configured ?? false);
 			}
 		} catch (e) {
 			console.error('Failed to load initial data:', e);
