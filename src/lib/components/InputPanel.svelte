@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { nodes, edges, upsertNode, upsertEdge, ollamaAvailable } from '$lib/graph-store';
+	import { nodes, edges, upsertNode, upsertEdge, ollamaAvailable, cloudConfigured } from '$lib/graph-store';
 	import type { CompendiumNode, CompendiumEdge, GraphNode, NodeType, NodeSource } from '$lib/types';
 
 	// ─── State ──────────────────────────────────────────────────────────────────
@@ -47,9 +47,11 @@
 			const rawId = newNode.id.toString();
 			const shortId = rawId.includes(':') ? rawId.split(':')[1] : rawId;
 
-			// 3. Process (Ollama if available, otherwise leave pending)
-			if ($ollamaAvailable) {
-				statusMsg = 'Processing with Ollama…';
+			// 3. Process if any provider is available
+			if ($ollamaAvailable || $cloudConfigured) {
+				// Use cloudConfigured (not ollamaAvailable) for the message:
+				// when a cloud model is selected, the backend routes to it regardless of Ollama status.
+				statusMsg = $cloudConfigured ? 'Processing with cloud model…' : 'Processing with Ollama…';
 				const procRes = await fetch(`/api/nodes/${shortId}/process`, { method: 'POST' });
 				if (procRes.ok) {
 					const { node: processed, edgesProposed } = await procRes.json();
@@ -67,7 +69,7 @@
 					statusMsg = 'Processing failed — node saved as pending';
 				}
 			} else {
-				statusMsg = 'Ollama offline — node saved as pending';
+				statusMsg = 'No processor available — node saved as pending';
 			}
 		} catch (e) {
 			statusMsg = `Error: ${e instanceof Error ? e.message : String(e)}`;
@@ -362,12 +364,12 @@
 		<p class="status">{statusMsg}</p>
 	{/if}
 
-	{#if $ollamaAvailable && $nodes.some((n) => n.status === 'pending')}
+	{#if ($ollamaAvailable || $cloudConfigured) && $nodes.some((n) => n.status === 'pending')}
 		<button class="reprocess" disabled={isSubmitting} onclick={reprocessPending}>
 			Process {$nodes.filter((n) => n.status === 'pending').length} pending
 		</button>
 	{/if}
-	{#if $ollamaAvailable && $nodes.length}
+	{#if ($ollamaAvailable || $cloudConfigured) && $nodes.length}
 		<button class="reanalyse" disabled={isSubmitting} onclick={reanalyseAll}>
 			Re-analyse all {$nodes.length} nodes
 		</button>
