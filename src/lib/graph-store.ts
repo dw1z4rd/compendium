@@ -12,6 +12,7 @@ export const selectedNodeId = writable<string | null>(null);
 export const searchQuery = writable<string>('');
 export const isLoading = writable<boolean>(false);
 export const ollamaAvailable = writable<boolean | null>(null); // null = unchecked
+export const cloudConfigured = writable<boolean>(false);
 
 // ─── Filtered node IDs (null = show all) ──────────────────────────────────────
 
