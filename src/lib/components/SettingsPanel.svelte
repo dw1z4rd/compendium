@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { cloudConfigured } from '$lib/graph-store';
+
 	let isOpen = $state(false);
 
 	type CloudModel = { key: string; name: string; color: string; group: 'ollama-cloud' | 'gemini' };
@@ -60,6 +62,8 @@
 				body: JSON.stringify({ text_model: textModel, vision_model: visionModel, embed_model: embedModel })
 			});
 			if (res.ok) {
+				const s = await res.json();
+				cloudConfigured.set(s.cloud_configured ?? false);
 				close();
 			} else {
 				loadError = 'Save failed — check console.';
